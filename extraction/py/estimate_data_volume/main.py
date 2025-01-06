@@ -1,7 +1,10 @@
-import numpy as np
-import cv2
+import base64
 import json
 import os
+
+import numpy as np
+import cv2
+
 
 def calculate_frame_size_mb(high_fps, high_cam_count, standard_fps, standard_cam_count, game_duration_seconds, total_data_tb):
     # Calculate total frames captured by high-frame-rate cameras
@@ -92,6 +95,24 @@ def generate_fake_frame_data(output_dir, image_width, image_height, jpeg_quality
     return image_file_size, metadata_file_size
 
 
+def encode_image_to_base64(image_path):
+    """Encode image to Base64 string and calculate the size of the Base64 string."""
+    with open(image_path, "rb") as image_file:
+        # Read the image as binary data
+        binary_data = image_file.read()
+        # Convert binary data to Base64 encoded string
+        base64_encoded_data = base64.b64encode(binary_data)
+        # Convert bytes to string for JSON serialization
+        base64_string = base64_encoded_data.decode('utf-8')
+        return base64_string
+
+
+def calculate_base64_size(base64_string):
+    """Calculate the size of the Base64 string in bytes."""
+    base64_size = len(base64_string.encode('utf-8'))  # Get the number of bytes
+    return base64_size / (1024 * 1024)  # Convert bytes to megabytes
+
+
 def main():
     # Constants
     HIGH_FPS = 300
@@ -114,6 +135,11 @@ def main():
         image_size, metadata_size = generate_fake_frame_data(output_dir, width, height, quality)
         print(f"Generated image size: {image_size:.2f} MB, Metadata size: {metadata_size:.2f} MB")
 
-
+        # Encode image to Base64
+        image_path = os.path.join(output_dir, "frame.jpg")
+        base64_string = encode_image_to_base64(image_path)
+        base64_size = calculate_base64_size(base64_string)
+        print(f"Base64 size: {base64_size:.2f} MB")
+        
 if __name__ == "__main__":
     main()
