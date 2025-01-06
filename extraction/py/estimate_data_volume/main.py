@@ -1,78 +1,119 @@
+import numpy as np
+import cv2
 import json
 import os
 
-def estimate_one_row_data_size() -> float:
+def calculate_frame_size_mb(high_fps, high_cam_count, standard_fps, standard_cam_count, game_duration_seconds, total_data_tb):
+    # Calculate total frames captured by high-frame-rate cameras
+    total_high_frames = high_fps * high_cam_count * game_duration_seconds
+    
+    # Calculate total frames captured by standard cameras
+    total_standard_frames = standard_fps * standard_cam_count * game_duration_seconds
+    
+    # Calculate total frames
+    total_frames = total_high_frames + total_standard_frames
+    
+    # Convert total data storage from TB to bytes
+    total_data_bytes = total_data_tb * 10**12
+    
+    # Calculate frame size in bytes
+    frame_size_bytes = total_data_bytes / total_frames
+    
+    # Convert frame size from bytes to MB
+    frame_size_mb = frame_size_bytes / 10**6
+    
+    return frame_size_mb
 
-    # Sample data in dictionary format for JSON conversion
-    sample_data = {
-        "pitch_type": "SI",
-        "game_date": "2020-09-18T00:00:00.000+0000",
-        "release_speed": 91.4,
-        "release_pos_x": 1.83,
-        "release_pos_z": 4.81,
-        "player_name": "Sherriff, Ryan",
-        "batter": 600524,
-        "pitcher": 595411,
-        "events": "NaN",
-        "description": "called_strike"
+
+def find_optimal_image_settings(target_size_mb, output_dir, trials=5):
+    # Define a set of potential dimensions (width x height) and JPEG qualities to test
+    dimensions = [(640, 480), (800, 600), (1024, 768)]  # Common video resolutions
+    qualities = range(80, 100, 5)  # High-quality range for JPEG
+    
+    best_match = None
+    min_diff = float('inf')
+    
+    # Test combinations of dimensions and qualities
+    for width, height in dimensions:
+        for quality in qualities:
+            # Create a random image
+            image_data = np.random.randint(0, 256, (height, width, 3), dtype=np.uint8)
+            
+            # Temporarily save the image to disk
+            test_filename = os.path.join(output_dir, "test_frame.jpg")
+            cv2.imwrite(test_filename, image_data, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+            
+            # Check the file size
+            current_size_mb = os.path.getsize(test_filename) / (1024 * 1024)
+            
+            # Calculate how close we are to the target size
+            diff = abs(current_size_mb - target_size_mb)
+            
+            if diff < min_diff:
+                min_diff = diff
+                best_match = (width, height, quality, current_size_mb)
+            
+            # Clean up test file
+            os.remove(test_filename)
+    
+    return best_match
+
+def generate_fake_frame_data(output_dir, image_width, image_height, jpeg_quality):
+    # Create a random image
+    image_data = np.random.randint(0, 256, (image_height, image_width, 3), dtype=np.uint8)
+
+    # Generate metadata
+    metadata = {
+        "timestamp": "2023-10-01T12:00:00Z",
+        "camera_id": 1,
+        "frame_id": 12345,
+        "tracking_info": {
+            "object_coordinates": [100, 200],
+            "velocity": [5, -3]
+        }
     }
+    metadata_json = json.dumps(metadata)
 
-    # Convert dictionary to JSON and save to a file
-    json_path = "sample_pitch_data.json"
-    with open(json_path, 'w') as json_file:
-        json.dump(sample_data, json_file)
+    # Save image to a file as JPEG
+    image_filename = os.path.join(output_dir, "frame.jpg")
+    cv2.imwrite(image_filename, image_data, [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality])
 
-    # Get the size of the file
-    file_size = os.path.getsize(json_path)
+    # Calculate file size in MB
+    image_file_size = os.path.getsize(image_filename) / (1024 * 1024)
 
-    # Remove the file
-    os.remove(json_path)
-    return file_size
-
-
-def estimate_records_per_second_active_play(row_size: int, total_size_tb: float, game_length_seconds: int, active_play_ratio: float = 0.5) -> float:
-    """
-    Estimate the number of records processed per second during active play.
-
-    Args:
-    row_size (int): Size of one row of data in bytes.
-    total_size_tb (float): Total size of data for one game in terabytes.
-    game_length_seconds (int): Average game duration in seconds.
-    active_play_ratio (float): Fraction of the game duration that is active play.
-
-    Returns:
-    float: Estimated number of records per second during active play.
-    """
-    # Convert total size from terabytes to bytes
-    total_size_bytes = total_size_tb * (10**12)
+    # Save metadata to a file
+    metadata_filename = os.path.join(output_dir, "metadata.json")
+    with open(metadata_filename, 'w') as f:
+        f.write(metadata_json)
     
-    # Adjust game length to only account for active play
-    active_play_seconds = game_length_seconds * active_play_ratio
-    
-    # Calculate the number of records
-    number_of_records = total_size_bytes / row_size
-    
-    # Calculate records per second during active play
-    records_per_second = number_of_records / active_play_seconds
-    
-    return records_per_second
+    # Calculate metadata file size in MB
+    metadata_file_size = os.path.getsize(metadata_filename) / (1024 * 1024)
+
+    return image_file_size, metadata_file_size
 
 
 def main():
-    # Estimate the size of one row of data
-    one_row_size = estimate_one_row_data_size()
+    # Constants
+    HIGH_FPS = 300
+    HIGH_CAM_COUNT = 5
+    STANDARD_FPS = 100
+    STANDARD_CAM_COUNT = 7
+    GAME_DURATION_SECONDS = 3 * 60 * 60  # 3 hours
+    TOTAL_DATA_TB = 7  # Known total data storage
 
-    TOTAL_DATA_SIZE_TB = 7.0
-    # Total game duration in seconds (3 hours)
-    GAME_LENGTH_SECONDS = 3 * 60 * 60
-    # Assuming active play is about 50% of the total game time
-    ACTIVE_PLAY_RATIO = 0.5
-    
-    # Calculate the average records per second during active play
-    avg_records_per_sec = estimate_records_per_second_active_play(one_row_size, TOTAL_DATA_SIZE_TB, GAME_LENGTH_SECONDS, ACTIVE_PLAY_RATIO)
-    
-    # Print the result
-    print(f"Average records per second during active play: {avg_records_per_sec:.2f}")
+    # Calculate frame size in MB
+    target_frame_size_mb = calculate_frame_size_mb(HIGH_FPS, HIGH_CAM_COUNT, STANDARD_FPS, STANDARD_CAM_COUNT, GAME_DURATION_SECONDS, TOTAL_DATA_TB)
+    print(f"Estimated frame size: {target_frame_size_mb:.2f} MB")
+
+    output_dir = '/home/hanbow/repositories/mlb_data_exploration/data'  # Adjust this to your actual output directory
+    # Find optimal image settings
+    optimal_settings = find_optimal_image_settings(target_frame_size_mb, output_dir)
+    if optimal_settings:
+        width, height, quality, achieved_size = optimal_settings
+        print(f"Optimal settings: {width}x{height} at quality {quality}, achieved size: {achieved_size:.2f} MB")
+        image_size, metadata_size = generate_fake_frame_data(output_dir, width, height, quality)
+        print(f"Generated image size: {image_size:.2f} MB, Metadata size: {metadata_size:.2f} MB")
+
 
 if __name__ == "__main__":
     main()
